@@ -1,0 +1,78 @@
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  # Define your variables here or in the Azure Pipeline UI
+  # registryName: 'youracr'
+  # imageName: 'v2x-auth'
+  buildConfiguration: 'Release'
+
+stages:
+- stage: Build
+  displayName: Build and Test
+  jobs:
+  - job: BuildBackend
+    displayName: Build Backend
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '18.x'
+      displayName: 'Install Node.js'
+
+    - script: |
+        cd backend
+        npm install
+        npm run build
+      displayName: 'npm install and build backend'
+
+  - job: BuildFrontend
+    displayName: Build Frontend
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '18.x'
+      displayName: 'Install Node.js'
+
+    - script: |
+        cd frontend
+        npm install
+        npm run build
+      displayName: 'npm install and build frontend'
+
+- stage: DockerBuild
+  displayName: Docker Build and Push
+  condition: succeeded()
+  jobs:
+  - job: Docker
+    displayName: Build Docker Images
+    steps:
+    - script: |
+        docker build -t v2x-backend ./backend
+        docker build -t v2x-frontend ./frontend
+      displayName: 'Build Docker Images'
+    
+    # Uncomment the following to push to Azure Container Registry (ACR)
+    # - task: Docker@2
+    #   displayName: Push Backend to ACR
+    #   inputs:
+    #     command: buildAndPush
+    #     repository: v2x-backend
+    #     dockerfile: backend/Dockerfile
+    #     containerRegistry: $(registryName)
+    #     tags: |
+    #       $(Build.BuildId)
+    #       latest
+
+    # - task: Docker@2
+    #   displayName: Push Frontend to ACR
+    #   inputs:
+    #     command: buildAndPush
+    #     repository: v2x-frontend
+    #     dockerfile: frontend/Dockerfile
+    #     containerRegistry: $(registryName)
+    #     tags: |
+    #       $(Build.BuildId)
+    #       latest

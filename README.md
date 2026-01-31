@@ -9,6 +9,10 @@ This is a reference V2X (Vehicle-to-Everything) authentication system built on a
   - **Vehicle registration** (by an authority wallet)
   - **Vehicle authentication** via signed nonces
   - **Revocation** of compromised or decommissioned vehicles
+- **React Frontend**: `frontend/` provides a user-friendly interface:
+  - **Landing Page**: Overview and entry point.
+  - **User Dashboard**: For vehicle owners to view status, GPS data, and Fastag balance.
+  - **Admin Dashboard**: For authorities to monitor active vehicles and accidents in real-time.
 
 ### High-Level Flow
 
@@ -25,67 +29,41 @@ This is a reference V2X (Vehicle-to-Everything) authentication system built on a
 - **Blockchain**: Any EVM-compatible network (e.g., Ethereum testnet, Polygon, local Hardhat node)
 - **Contract language**: Solidity
 - **Backend**: Node.js, TypeScript, Express, `ethers`
+- **Frontend**: React, Vite, Tailwind CSS, Framer Motion, Leaflet
 
-### Quick Start (Backend)
+### Quick Start (Local Development)
 
+#### Backend
 1. Install dependencies:
-
-```bash
-cd backend
-npm install
-```
-
-2. Set environment variables (e.g. in `.env`):
-
-```bash
-ETH_RPC_URL=<your_rpc_url>
-PRIVATE_KEY=<authority_wallet_private_key>
-CONTRACT_ADDRESS=<deployed_V2XAuth_contract_address>
-PORT=4000
-```
-
+   ```bash
+   cd backend
+   npm install
+   ```
+2. Set environment variables (see `.env.example`).
 3. Run the backend:
+   ```bash
+   npm run dev
+   ```
 
-```bash
-npm run dev
-```
+#### Frontend
+1. Install dependencies:
+   ```bash
+   cd frontend
+   npm install
+   ```
+2. Run the frontend:
+   ```bash
+   npm run dev
+   ```
 
-4. Example API calls:
+### Deployment (Docker)
 
-- **Register vehicle**:
+This project is ready for commercial deployment using Docker.
 
-```bash
-curl -X POST http://localhost:4000/api/vehicles/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "vehicleId": "VIN123456789",
-    "vehicleAddress": "0x1234...abcd"
-  }'
-```
+1. Configure `.env` file in the root directory.
+2. Run with Docker Compose:
+   ```bash
+   docker-compose up -d --build
+   ```
 
-- **Authenticate vehicle** (two-step: get nonce, then verify):
-
-```bash
-curl -X POST http://localhost:4000/api/vehicles/nonce \
-  -H "Content-Type: application/json" \
-  -d '{ "vehicleId": "VIN123456789" }'
-```
-
-Use the returned `nonce` to sign with the vehicle wallet, then:
-
-```bash
-curl -X POST http://localhost:4000/api/vehicles/authenticate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "vehicleId": "VIN123456789",
-    "nonce": "<nonce_from_server>",
-    "signature": "<signature_from_vehicle_wallet>"
-  }'
-```
-
-### Next Steps
-
-- Integrate RSUs and roadside infrastructure using the same authentication APIs.
-- Add TLS and mTLS between RSUs and backend.
-- Add role-based access control and logging for production use.
-
+See [DEPLOY.md](DEPLOY.md) for detailed deployment instructions.
