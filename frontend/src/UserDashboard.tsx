@@ -1,18 +1,23 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { motion } from 'framer-motion';
-import { User, Lock, Wallet, Activity, Navigation, LogOut } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { User, Lock, Wallet, Activity, Navigation, LogOut, Smartphone, Copy, Check, X } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000/api";
 
 export default function UserDashboard() {
+    const navigate = useNavigate();
     // Auth States
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
     const [vehicleId, setVehicleId] = useState("");
     const [password, setPassword] = useState(""); 
-    const [vehicleAddress, setVehicleAddress] = useState(""); 
+    const [mobileNumber, setMobileNumber] = useState("");
+    
+    // New Registration Result State
+    const [generatedCreds, setGeneratedCreds] = useState<{address: string, privateKey: string, vehicleId?: string} | null>(null);
+    const [copied, setCopied] = useState(false);
 
     // Dashboard Data States
     const [status, setStatus] = useState<any>(null);
@@ -23,8 +28,26 @@ export default function UserDashboard() {
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setError("");
+        
+        let loginId = vehicleId;
+
+        // Check if input is a mobile number (simple check: mostly digits)
+        const isMobile = /^\+?[\d\s-]+$/.test(vehicleId) && vehicleId.replace(/\D/g, '').length >= 10;
+
+        if (isMobile) {
+            try {
+                const lookupRes = await axios.get(`${BACKEND_URL}/vehicles/lookup/${encodeURIComponent(vehicleId)}`);
+                loginId = lookupRes.data.vehicleId;
+                // Update state so the dashboard uses the correct ID
+                setVehicleId(loginId); 
+            } catch (err) {
+                setError("Mobile number not found. Please register.");
+                return;
+            }
+        }
+
         try {
-            const statusRes = await axios.get(`${BACKEND_URL}/vehicles/${vehicleId}/status`);
+            const statusRes = await axios.get(`${BACKEND_URL}/vehicles/${loginId}/status`);
             if (statusRes.data && statusRes.data.active) {
                 setIsLoggedIn(true);
             } else {
@@ -39,16 +62,43 @@ export default function UserDashboard() {
         e.preventDefault();
         setError("");
         try {
-            await axios.post(`${BACKEND_URL}/vehicles/register`, {
+            const res = await axios.post(`${BACKEND_URL}/vehicles/register`, {
                 vehicleId,
-                vehicleAddress
+                mobileNumber
             });
-            alert("Registration Successful! Please Login.");
-            setAuthMode('login');
-        } catch (err) {
+            
+            if (res.data.privateKey) {
+                setGeneratedCreds({
+                    address: res.data.vehicleAddress,
+                    privateKey: res.data.privateKey,
+                    vehicleId: res.data.vehicleId
+                });
+            } else {
+                alert("Registration Successful! Please Login.");
+                setAuthMode('login');
+            }
+        } catch (err: any) {
             console.error(err);
-            setError("Registration failed. ID might be taken.");
+            const msg = err.response?.data?.error || "Registration failed. Please try again.";
+            setError(msg);
         }
+    };
+
+    const copyToClipboard = () => {
+        if (generatedCreds) {
+            let text = `Address: ${generatedCreds.address}\nPrivate Key: ${generatedCreds.privateKey}`;
+            if (generatedCreds.vehicleId) {
+                text = `Vehicle ID: ${generatedCreds.vehicleId}\n` + text;
+            }
+            navigator.clipboard.writeText(text);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
+    };
+
+    const closeCredsModal = () => {
+        setGeneratedCreds(null);
+        setAuthMode('login');
     };
 
     useEffect(() => {
@@ -81,14 +131,73 @@ export default function UserDashboard() {
         return () => clearInterval(interval);
     }, [isLoggedIn, vehicleId]);
 
+    const handleLogout = () => {
+        setIsLoggedIn(false);
+        navigate('/');
+    };
+
     // Auth View
     if (!isLoggedIn) {
         return (
-            <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
+            <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4 relative">
                 <Link to="/" className="absolute top-8 left-8 text-gray-400 hover:text-white transition-colors flex items-center gap-2">
                     ← Back to Home
                 </Link>
                 
+                {generatedCreds && (
+                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="bg-gray-800 border border-indigo-500 rounded-2xl p-8 max-w-lg w-full shadow-2xl relative"
+                        >
+                            <button onClick={closeCredsModal} className="absolute top-4 right-4 text-gray-400 hover:text-white">
+                                <X className="w-6 h-6" />
+                            </button>
+                            <h3 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+                                <Check className="w-8 h-8 text-green-500" />
+                                Registration Successful!
+                            </h3>
+                            <p className="text-gray-300 mb-6">
+                                Your secure wallet has been generated. <br/>
+                                <span className="text-red-400 font-bold">SAVE THIS INFORMATION NOW.</span> You will not be able to see it again.
+                            </p>
+                            
+                            <div className="bg-gray-900 p-4 rounded-lg border border-gray-700 space-y-4 mb-6">
+                                {generatedCreds.vehicleId && (
+                                    <div>
+                                        <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Vehicle ID</div>
+                                        <div className="font-mono text-white break-all text-sm font-bold">{generatedCreds.vehicleId}</div>
+                                    </div>
+                                )}
+                                <div>
+                                    <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Wallet Address</div>
+                                    <div className="font-mono text-indigo-400 break-all text-sm">{generatedCreds.address}</div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Private Key</div>
+                                    <div className="font-mono text-red-400 break-all text-sm">{generatedCreds.privateKey}</div>
+                                </div>
+                            </div>
+
+                            <button 
+                                onClick={copyToClipboard}
+                                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-colors"
+                            >
+                                {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                                {copied ? "Copied to Clipboard" : "Copy Credentials"}
+                            </button>
+                            
+                            <button 
+                                onClick={closeCredsModal}
+                                className="w-full mt-3 py-3 border border-gray-600 hover:bg-gray-700 text-gray-300 font-bold rounded-lg transition-colors"
+                            >
+                                I have saved my key
+                            </button>
+                        </motion.div>
+                    </div>
+                )}
+
                 <motion.div 
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -105,33 +214,41 @@ export default function UserDashboard() {
                     )}
 
                     <form onSubmit={authMode === 'login' ? handleLogin : handleRegister} className="space-y-6">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">Vehicle ID</label>
-                            <div className="relative">
-                                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                                <input 
-                                    required
-                                    value={vehicleId}
-                                    onChange={e => setVehicleId(e.target.value)}
-                                    placeholder="e.g., VIN123456789"
-                                    className="w-full pl-10 pr-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-white transition-all"
-                                />
-                            </div>
-                        </div>
-
-                        {authMode === 'register' && (
+                        {authMode === 'login' && (
                             <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-2">Wallet Address</label>
+                                <label className="block text-sm font-medium text-gray-400 mb-2">
+                                    Vehicle ID or Mobile Number
+                                </label>
                                 <div className="relative">
-                                    <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                                     <input 
                                         required
-                                        value={vehicleAddress}
-                                        onChange={e => setVehicleAddress(e.target.value)}
-                                        placeholder="0x..."
+                                        value={vehicleId}
+                                        onChange={e => setVehicleId(e.target.value)}
+                                        placeholder="Enter Vehicle ID or Mobile Number"
                                         className="w-full pl-10 pr-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-white transition-all"
                                     />
                                 </div>
+                            </div>
+                        )}
+
+                        {authMode === 'register' && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-2">Mobile Number</label>
+                                <div className="relative">
+                                    <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                                    <input 
+                                        required
+                                        type="tel"
+                                        value={mobileNumber}
+                                        onChange={e => setMobileNumber(e.target.value)}
+                                        placeholder="+1 234 567 8900"
+                                        className="w-full pl-10 pr-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-white transition-all"
+                                    />
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">
+                                    We will automatically generate a secure blockchain wallet for you.
+                                </p>
                             </div>
                         )}
 
@@ -206,7 +323,7 @@ export default function UserDashboard() {
                 </div>
 
                 <button 
-                    onClick={() => setIsLoggedIn(false)} 
+                    onClick={handleLogout} 
                     className="mt-auto flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
                 >
                     <LogOut className="w-5 h-5" /> Logout

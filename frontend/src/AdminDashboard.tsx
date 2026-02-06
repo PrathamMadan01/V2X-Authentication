@@ -5,7 +5,7 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { motion } from 'framer-motion';
 import { Shield, AlertTriangle, Car, LogOut, Lock } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 // Fix for default marker icon in Leaflet + React
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -38,6 +38,7 @@ interface Accident {
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000/api";
 
 export default function AdminDashboard() {
+    const navigate = useNavigate();
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
@@ -54,6 +55,11 @@ export default function AdminDashboard() {
         } else {
             setError("Invalid Admin Password");
         }
+    };
+
+    const handleLogout = () => {
+        setIsAuthenticated(false);
+        navigate('/');
     };
 
     useEffect(() => {
@@ -151,6 +157,31 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-6 pb-6">
+                    {/* Active Vehicles List */}
+                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Live Fleet</h3>
+                    <div className="space-y-3 mb-8">
+                        {vehicles.map(v => (
+                            <div key={v.vehicleId} className="p-3 bg-gray-900 rounded-lg border border-gray-700 flex justify-between items-center hover:border-indigo-500/50 transition-colors">
+                                <div>
+                                    <div className="text-xs text-gray-400 font-mono mb-1">{v.vehicleId}</div>
+                                    <div className="text-sm font-bold text-white flex items-center gap-2">
+                                        <Car className="w-3 h-3 text-indigo-400" />
+                                        {v.speed} km/h
+                                    </div>
+                                </div>
+                                <div className="flex flex-col items-end">
+                                    <div className="w-2 h-2 rounded-full bg-green-500 mb-1"></div>
+                                    <div className="text-[10px] text-gray-500">{new Date(v.timestamp).toLocaleTimeString()}</div>
+                                </div>
+                            </div>
+                        ))}
+                        {vehicles.length === 0 && (
+                            <div className="text-center text-gray-500 py-4 text-xs border border-dashed border-gray-700 rounded-lg">
+                                No vehicles active
+                            </div>
+                        )}
+                    </div>
+
                     <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Recent Alerts</h3>
                     <div className="space-y-3">
                         {accidents.slice().reverse().map((acc, i) => (
@@ -180,7 +211,7 @@ export default function AdminDashboard() {
 
                 <div className="p-4 border-t border-gray-700">
                     <button 
-                        onClick={() => setIsAuthenticated(false)} 
+                        onClick={handleLogout} 
                         className="w-full py-2 flex items-center justify-center gap-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
                     >
                         <LogOut className="w-4 h-4" /> Logout

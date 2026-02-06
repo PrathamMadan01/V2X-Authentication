@@ -9,24 +9,58 @@ const blockchain = new BlockchainClient();
 // In-memory nonce store for demo purposes.
 // In production, use a shared datastore (Redis, SQL, etc.).
 const nonces = new Map<string, string>();
+const mobileToId = new Map<string, string>();
 
 router.post("/vehicles/register", async (req, res) => {
   try {
-    const { vehicleId, vehicleAddress } = req.body as {
+    const { vehicleId, vehicleAddress, mobileNumber } = req.body as {
       vehicleId?: string;
       vehicleAddress?: string;
+      mobileNumber?: string;
     };
 
-    if (!vehicleId || !vehicleAddress) {
-      return res.status(400).json({ error: "vehicleId and vehicleAddress are required" });
+    let finalVehicleId = vehicleId;
+
+    if (!finalVehicleId) {
+        // Generate a random vehicle ID if not provided
+        // Format: V2X-<8_CHARS_RANDOM>
+        const randomSuffix = randomUUID().split('-')[0].toUpperCase();
+        finalVehicleId = `V2X-${randomSuffix}`;
     }
 
-    if (!ethers.isAddress(vehicleAddress)) {
+    let finalAddress = vehicleAddress;
+    let generatedPrivateKey = null;
+
+    // If no address provided, try to generate one using mobileNumber (or just generate one)
+    if (!finalAddress) {
+        if (!mobileNumber) {
+             return res.status(400).json({ error: "Either vehicleAddress or mobileNumber is required" });
+        }
+        // Generate a new random wallet for the user
+        const wallet = ethers.Wallet.createRandom();
+        finalAddress = wallet.address;
+        generatedPrivateKey = wallet.privateKey;
+    }
+
+    if (!ethers.isAddress(finalAddress)) {
       return res.status(400).json({ error: "Invalid vehicleAddress" });
     }
 
-    const { txHash } = await blockchain.registerVehicle(vehicleId, vehicleAddress);
-    return res.status(201).json({ status: "registered", txHash });
+    const { txHash } = await blockchain.registerVehicle(finalVehicleId, finalAddress);
+    
+    // Store mobile mapping if provided
+    if (mobileNumber) {
+        mobileToId.set(mobileNumber, finalVehicleId);
+    }
+
+    // Return the generated credentials if applicable
+    return res.status(201).json({ 
+        status: "registered", 
+        txHash, 
+        vehicleId: finalVehicleId,
+        vehicleAddress: finalAddress,
+        privateKey: generatedPrivateKey 
+    });
   } catch (err: any) {
     console.error("registerVehicle error", err);
     return res.status(500).json({ error: err?.message ?? "Internal error" });
@@ -67,6 +101,17 @@ router.post("/vehicles/nonce", async (req, res) => {
     console.error("nonce error", err);
     return res.status(500).json({ error: err?.message ?? "Internal error" });
   }
+});
+
+router.get("/vehicles/lookup/:mobile", (req, res) => {
+    const { mobile } = req.params;
+    const vehicleId = mobileToId.get(mobile);
+    
+    if (!vehicleId) {
+        return res.status(404).json({ error: "No vehicle found for this mobile number" });
+    }
+    
+    return res.json({ vehicleId });
 });
 
 router.post("/vehicles/authenticate", async (req, res) => {
