@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Shield, MapPin, CreditCard, Activity, ChevronRight, Lock } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 export default function LandingPage() {
   return (
@@ -188,7 +189,7 @@ export default function LandingPage() {
   );
 }
 
-function FeatureCard({ icon, title, desc }: { icon: any, title: string, desc: string }) {
+function FeatureCard({ icon, title, desc }: { icon: ReactNode; title: string; desc: string }) {
   return (
     <motion.div 
       whileHover={{ y: -5 }}

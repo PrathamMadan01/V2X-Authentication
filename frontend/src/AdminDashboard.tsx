@@ -11,7 +11,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
-let DefaultIcon = L.icon({
+const DefaultIcon = L.icon({
     iconUrl: icon,
     shadowUrl: iconShadow,
     iconSize: [25, 41],
@@ -27,6 +27,11 @@ interface VehicleData {
     timestamp: number;
 }
 
+interface RegisteredVehicle {
+    vehicleId: string;
+    vehicleAddress: string;
+}
+
 interface Accident {
     vehicleId: string;
     location: string;
@@ -37,6 +42,25 @@ interface Accident {
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000/api";
 
+const TERRITORY_CENTER = { lat: 12.9716, long: 77.5946 };
+const TERRITORY_RADIUS_KM = 5;
+
+function isOutsideTerritory(v: VehicleData): boolean {
+    const toRad = (value: number) => (value * Math.PI) / 180;
+    const R = 6371;
+    const dLat = toRad(v.lat - TERRITORY_CENTER.lat);
+    const dLon = toRad(v.long - TERRITORY_CENTER.long);
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(TERRITORY_CENTER.lat)) *
+            Math.cos(toRad(v.lat)) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c;
+    return distance > TERRITORY_RADIUS_KM;
+}
+
 export default function AdminDashboard() {
     const navigate = useNavigate();
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -44,6 +68,7 @@ export default function AdminDashboard() {
     const [error, setError] = useState("");
 
     const [vehicles, setVehicles] = useState<VehicleData[]>([]);
+    const [registeredVehicles, setRegisteredVehicles] = useState<RegisteredVehicle[]>([]);
     const [accidents, setAccidents] = useState<Accident[]>([]);
 
     const handleLogin = (e: React.FormEvent) => {
@@ -72,6 +97,9 @@ export default function AdminDashboard() {
 
                 const aRes = await axios.get(`${BACKEND_URL}/gps/accidents`);
                 setAccidents(aRes.data);
+
+                const rRes = await axios.get(`${BACKEND_URL}/vehicles/registered`);
+                setRegisteredVehicles(rRes.data);
             } catch (err) {
                 console.error("Error fetching admin data", err);
             }
@@ -143,9 +171,9 @@ export default function AdminDashboard() {
                 
                 <div className="p-6 grid grid-cols-2 gap-4">
                     <div className="bg-gray-900 p-4 rounded-xl border border-gray-700">
-                        <div className="text-gray-400 text-xs uppercase font-bold mb-2">Active Vehicles</div>
+                        <div className="text-gray-400 text-xs uppercase font-bold mb-2">Registered Vehicles</div>
                         <div className="text-3xl font-bold text-white flex items-center gap-2">
-                            {vehicles.length} <Car className="w-5 h-5 text-gray-600" />
+                            {registeredVehicles.length} <Car className="w-5 h-5 text-gray-600" />
                         </div>
                     </div>
                     <div className="bg-gray-900 p-4 rounded-xl border border-gray-700">
@@ -167,6 +195,9 @@ export default function AdminDashboard() {
                                     <div className="text-sm font-bold text-white flex items-center gap-2">
                                         <Car className="w-3 h-3 text-indigo-400" />
                                         {v.speed} km/h
+                                    </div>
+                                    <div className={`text-[11px] font-semibold ${isOutsideTerritory(v) ? 'text-red-400' : 'text-green-400'}`}>
+                                        {isOutsideTerritory(v) ? 'Exited Territory' : 'In Territory'}
                                     </div>
                                 </div>
                                 <div className="flex flex-col items-end">
@@ -204,6 +235,23 @@ export default function AdminDashboard() {
                         {accidents.length === 0 && (
                             <div className="text-center text-gray-500 py-8 text-sm">
                                 System Normal. No accidents reported.
+                            </div>
+                        )}
+                    </div>
+
+                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 mt-8">Registered Vehicles</h3>
+                    <div className="space-y-3">
+                        {registeredVehicles.map(rv => (
+                            <div key={rv.vehicleId} className="p-3 bg-gray-900 rounded-lg border border-gray-700 flex justify-between items-center">
+                                <div>
+                                    <div className="text-xs text-gray-400 font-mono mb-1">{rv.vehicleId}</div>
+                                    <div className="text-[11px] text-gray-500 break-all">{rv.vehicleAddress}</div>
+                                </div>
+                            </div>
+                        ))}
+                        {registeredVehicles.length === 0 && (
+                            <div className="text-center text-gray-500 py-4 text-xs border border-dashed border-gray-700 rounded-lg">
+                                No registered vehicles yet
                             </div>
                         )}
                     </div>

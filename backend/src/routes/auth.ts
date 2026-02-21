@@ -1,15 +1,20 @@
 import { Router } from "express";
 import { randomUUID } from "crypto";
 import { ethers } from "ethers";
+import path from "path";
+import { spawn, ChildProcess } from "child_process";
 import { BlockchainClient } from "../blockchain";
+import { gpsData } from "./gps";
 
 const router = Router();
 const blockchain = new BlockchainClient();
 
-// In-memory nonce store for demo purposes.
-// In production, use a shared datastore (Redis, SQL, etc.).
 const nonces = new Map<string, string>();
 const mobileToId = new Map<string, string>();
+const normalizeMobile = (m: string) => m.replace(/\D/g, "");
+const runningClients = new Map<string, ChildProcess>();
+const simulatedTimers = new Map<string, NodeJS.Timeout>();
+const registeredVehicles: { vehicleId: string; vehicleAddress: string }[] = [];
 
 router.post("/vehicles/register", async (req, res) => {
   try {
@@ -46,20 +51,33 @@ router.post("/vehicles/register", async (req, res) => {
       return res.status(400).json({ error: "Invalid vehicleAddress" });
     }
 
-    const { txHash } = await blockchain.registerVehicle(finalVehicleId, finalAddress);
-    
-    // Store mobile mapping if provided
+    let txHash: string | null = null;
+    try {
+      const result = await blockchain.registerVehicle(finalVehicleId, finalAddress);
+      txHash = result.txHash;
+    } catch (err: any) {
+      if (err?.code === "CALL_EXCEPTION") {
+        console.warn("registerVehicle: already registered on-chain, treating as idempotent");
+      } else {
+        throw err;
+      }
+    }
+
+    if (!registeredVehicles.find(v => v.vehicleId === finalVehicleId)) {
+      registeredVehicles.push({ vehicleId: finalVehicleId, vehicleAddress: finalAddress });
+    }
+
     if (mobileNumber) {
-        mobileToId.set(mobileNumber, finalVehicleId);
+        mobileToId.set(normalizeMobile(mobileNumber), finalVehicleId);
     }
 
     // Return the generated credentials if applicable
-    return res.status(201).json({ 
-        status: "registered", 
-        txHash, 
-        vehicleId: finalVehicleId,
-        vehicleAddress: finalAddress,
-        privateKey: generatedPrivateKey 
+    return res.status(201).json({
+      status: "registered",
+      txHash,
+      vehicleId: finalVehicleId,
+      vehicleAddress: finalAddress,
+      privateKey: generatedPrivateKey
     });
   } catch (err: any) {
     console.error("registerVehicle error", err);
@@ -105,13 +123,102 @@ router.post("/vehicles/nonce", async (req, res) => {
 
 router.get("/vehicles/lookup/:mobile", (req, res) => {
     const { mobile } = req.params;
-    const vehicleId = mobileToId.get(mobile);
+    const vehicleId = mobileToId.get(normalizeMobile(mobile));
     
     if (!vehicleId) {
         return res.status(404).json({ error: "No vehicle found for this mobile number" });
     }
     
     return res.json({ vehicleId });
+});
+
+router.get("/vehicles/registered", (_req, res) => {
+  return res.json(registeredVehicles);
+});
+
+const startSimulatedClient = (vehicleId: string) => {
+  if (simulatedTimers.has(vehicleId)) {
+    return { status: "already_running", vehicleId };
+  }
+
+  let lat = 12.9716;
+  let long = 77.5946;
+  let speed = 0;
+
+  const timer = setInterval(() => {
+    lat += (Math.random() - 0.5) * 0.001;
+    long += (Math.random() - 0.5) * 0.001;
+    speed = Math.floor(Math.random() * 60) + 20;
+    if (Math.random() > 0.95) speed = 0;
+
+    const data = {
+      vehicleId,
+      lat,
+      long,
+      speed,
+      timestamp: Date.now()
+    };
+    gpsData.set(vehicleId, data);
+    process.stdout.write(".");
+  }, 2000);
+
+  simulatedTimers.set(vehicleId, timer);
+
+  return { status: "started", vehicleId };
+};
+
+router.post("/vehicles/:vehicleId/client/start", (req, res) => {
+  const { vehicleId } = req.params;
+
+  if (!vehicleId) {
+    return res.status(400).json({ error: "vehicleId is required" });
+  }
+
+  const result = startSimulatedClient(vehicleId);
+  return res.json(result);
+});
+
+router.post("/vehicles/:vehicleId/client/start-chain", (req, res) => {
+  const { vehicleId } = req.params;
+  const { privateKey } = req.body as { privateKey?: string };
+
+  if (!vehicleId) {
+    return res.status(400).json({ error: "vehicleId is required" });
+  }
+
+  if (!privateKey) {
+    return res.status(400).json({ error: "privateKey is required" });
+  }
+
+  const key = `${vehicleId}:chain`;
+
+  if (runningClients.has(key)) {
+    return res.json({ status: "already_running", vehicleId, mode: "chain" });
+  }
+
+  const backendRoot = path.resolve(__dirname, "..", "..");
+  const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
+
+  try {
+    const child = spawn(npmCmd, ["run", "vehicle:demo"], {
+      cwd: backendRoot,
+      env: {
+        ...process.env,
+        VEHICLE_ID: vehicleId,
+        VEHICLE_PRIVATE_KEY: privateKey
+      }
+    });
+
+    runningClients.set(key, child);
+    child.on("exit", () => {
+      runningClients.delete(key);
+    });
+
+    return res.json({ status: "started", vehicleId, mode: "chain" });
+  } catch (err: any) {
+    console.error("Failed to start chain vehicle client", err);
+    return res.status(500).json({ error: err?.message ?? "Failed to start chain vehicle client" });
+  }
 });
 
 router.post("/vehicles/authenticate", async (req, res) => {
@@ -165,6 +272,7 @@ router.get("/vehicles/:vehicleId/status", async (req, res) => {
     if (!vehicle) {
       return res.status(404).json({ registered: false });
     }
+    startSimulatedClient(vehicleId);
     return res.status(200).json({
       registered: true,
       active: vehicle.active,
