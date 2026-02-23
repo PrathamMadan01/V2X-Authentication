@@ -6,6 +6,7 @@ import V2XAuthArtifact from "./abis/V2XAuth.json";
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4000";
 const RPC_URL = process.env.ETH_RPC_URL || "http://127.0.0.1:8545";
 const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
+const FUNDER_PRIVATE_KEY = process.env.PRIVATE_KEY;
 const SIMULATED_MODE = process.env.SIMULATED_MODE === "1";
 
 if (!CONTRACT_ADDRESS && !SIMULATED_MODE) {
@@ -43,6 +44,20 @@ async function main() {
         console.log(`Vehicle Client Started`);
         console.log(`ID: ${vehicleId}`);
         console.log(`Address: ${wallet.address}`);
+
+        if (FUNDER_PRIVATE_KEY) {
+            const funder = new ethers.Wallet(FUNDER_PRIVATE_KEY, provider);
+            const currentNative = await provider.getBalance(wallet.address);
+            const minNative = ethers.parseEther("20");
+            if (currentNative < minNative) {
+                const txFund = await funder.sendTransaction({
+                    to: wallet.address,
+                    value: minNative - currentNative
+                });
+                await txFund.wait();
+                console.log(`Funded vehicle wallet with ${ethers.formatEther(minNative - currentNative)} ETH native for gas and deposits.`);
+            }
+        }
     } else {
         console.log(`Vehicle Client Started in SIMULATED_MODE (no blockchain)`);
         console.log(`ID: ${vehicleId}`);
@@ -77,15 +92,18 @@ async function main() {
                 throw new Error("Authentication failed");
             }
 
-            // 3. Deposit for Fastag (if balance low)
+            // 3. Deposit for Fastag (ensure 10 ETH balance)
             const balance = await contract.balances(wallet.address);
             console.log(`Current Fastag Balance: ${ethers.formatEther(balance)} ETH`);
-            
-            if (balance < ethers.parseEther("0.1")) {
-                console.log("Low balance. Depositing 1 ETH...");
-                const tx = await contract.deposit({ value: ethers.parseEther("1.0") });
+            const targetBalance = ethers.parseEther("10.0");
+            if (balance < targetBalance) {
+                const topUp = targetBalance - balance;
+                console.log(`Topping up Fastag balance by ${ethers.formatEther(topUp)} ETH to reach 10 ETH...`);
+                const tx = await contract.deposit({ value: topUp });
                 await tx.wait();
-                console.log("Deposit confirmed.");
+                console.log("Top-up confirmed.");
+            } else {
+                console.log("Fastag balance already at or above 10 ETH, skipping top-up.");
             }
         } else {
             console.log("SIMULATED_MODE enabled: skipping blockchain registration/authentication and payments.");
@@ -97,11 +115,22 @@ async function main() {
                 long: 77.59,
                 operator: "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199",
                 amountEth: "0.01",
+                radiusMeters: 50
+            }
+        ];
+
+        const fuelStations = [
+            {
+                lat: 12.9735,
+                long: 77.596,
+                operator: "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199",
+                amountEth: "1.0",
                 radiusMeters: 300
             }
         ];
 
         const chargedTolls = new Set<number>();
+        const chargedFuel = new Set<number>();
 
         const toRad = (v: number) => (v * Math.PI) / 180;
         const distanceMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -154,6 +183,25 @@ async function main() {
                             chargedTolls.add(i);
                         } catch (e: any) {
                             console.error("\n[FASTAG] Payment Failed:", e.message);
+                        }
+                    }
+                }
+
+                for (let i = 0; i < fuelStations.length; i++) {
+                    if (chargedFuel.has(i)) continue;
+                    const station = fuelStations[i];
+                    const d = distanceMeters(lat, long, station.lat, station.long);
+                    if (d <= station.radiusMeters) {
+                        try {
+                            console.log(`\n[FASTAG] Arrived at Fuel Station at ${d.toFixed(1)}m...`);
+                            const amount = ethers.parseEther(station.amountEth);
+                            const tx = await contract.payToll(station.operator, amount);
+                            console.log(`[FASTAG] Paid ${station.amountEth} ETH for fuel. Tx: ${tx.hash}`);
+                            await tx.wait();
+                            console.log("[FASTAG] Fuel payment confirmed.");
+                            chargedFuel.add(i);
+                        } catch (e: any) {
+                            console.error("\n[FASTAG] Fuel Payment Failed:", e.message);
                         }
                     }
                 }

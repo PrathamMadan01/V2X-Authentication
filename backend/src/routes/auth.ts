@@ -197,10 +197,11 @@ router.post("/vehicles/:vehicleId/client/start-chain", (req, res) => {
   }
 
   const backendRoot = path.resolve(__dirname, "..", "..");
-  const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
+  const nodeCmd = process.execPath;
+  const scriptPath = path.resolve(backendRoot, "dist", "vehicleClient.js");
 
   try {
-    const child = spawn(npmCmd, ["run", "vehicle:demo"], {
+    const child = spawn(nodeCmd, [scriptPath], {
       cwd: backendRoot,
       env: {
         ...process.env,
